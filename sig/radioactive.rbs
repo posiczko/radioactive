@@ -1,0 +1,234 @@
+module Radioactive
+  VERSION: String
+
+  type uri_like = String | URI::Generic
+  type header_hash = Hash[String, String]
+
+  # Common interface for what `Radioactive.open` yields/returns.
+  # StringIO (no-block) and Tempfile (block form) both satisfy this.
+  interface _ReadableIO
+    def read: () -> String
+            | (Integer?) -> String?
+    def rewind: () -> Integer
+  end
+
+  interface _Clock
+    def now: () -> Float
+  end
+
+  module MonotonicClock
+    def self.now: () -> Float
+  end
+
+  def self.fetch: (
+    uri_like url,
+    ?schemes: Array[String],
+    ?max_size: Integer,
+    ?open_timeout: Float | Integer,
+    ?read_timeout: Float | Integer,
+    ?total_timeout: (Float | Integer)?,
+    ?max_redirects: Integer,
+    ?accept_encoding: String,
+    ?user_agent: String,
+    ?private_ranges: Array[IPAddr],
+    ?allow_private: bool,
+    ?allow_credentials: bool,
+    ?headers: header_hash,
+    ?resolver: AddressCheck::_Resolver,
+    ?clock: _Clock
+  ) -> Result
+
+  def self.open: (
+    uri_like url,
+    ?schemes: Array[String],
+    ?max_size: Integer,
+    ?open_timeout: Float | Integer,
+    ?read_timeout: Float | Integer,
+    ?total_timeout: (Float | Integer)?,
+    ?max_redirects: Integer,
+    ?accept_encoding: String,
+    ?user_agent: String,
+    ?private_ranges: Array[IPAddr],
+    ?allow_private: bool,
+    ?allow_credentials: bool,
+    ?headers: header_hash,
+    ?resolver: AddressCheck::_Resolver,
+    ?clock: _Clock
+  ) -> StringIO
+     | (
+    uri_like url,
+    ?schemes: Array[String],
+    ?max_size: Integer,
+    ?open_timeout: Float | Integer,
+    ?read_timeout: Float | Integer,
+    ?total_timeout: (Float | Integer)?,
+    ?max_redirects: Integer,
+    ?accept_encoding: String,
+    ?user_agent: String,
+    ?private_ranges: Array[IPAddr],
+    ?allow_private: bool,
+    ?allow_credentials: bool,
+    ?headers: header_hash,
+    ?resolver: AddressCheck::_Resolver,
+    ?clock: _Clock
+  ) { (_ReadableIO io) -> untyped } -> untyped
+
+  class Error < StandardError
+  end
+
+  class SchemeError < Error
+  end
+
+  class AddressError < Error
+  end
+
+  class TimeoutError < Error
+  end
+
+  class SizeError < Error
+  end
+
+  class RedirectError < Error
+  end
+
+  class EncodingError < Error
+  end
+
+  class ResponseError < Error
+    attr_reader status: Integer?
+    attr_reader headers: header_hash?
+    attr_reader body: String?
+
+    def initialize: (?String? message, ?status: Integer?, ?headers: header_hash?, ?body: String?) -> void
+  end
+
+  class Result
+    attr_reader url: URI::Generic
+    attr_reader final_url: URI::Generic
+    attr_reader status: Integer
+    attr_reader headers: header_hash
+    attr_reader body: String
+    attr_reader hops: Array[URI::Generic]
+
+    def self.new: (
+      url: URI::Generic,
+      final_url: URI::Generic,
+      status: Integer,
+      headers: header_hash,
+      body: String,
+      hops: Array[URI::Generic]
+    ) -> Result
+  end
+
+  module AddressCheck
+    DEFAULT_PRIVATE_RANGES: Array[IPAddr]
+
+    interface _Resolver
+      def getaddresses: (String host) -> Array[String]
+    end
+
+    def self?.forbidden?: (IPAddr ip, ?Array[IPAddr] ranges) -> bool
+    def self?.resolve: (String host, _Resolver resolver) -> Array[IPAddr]
+  end
+
+  class Fetcher
+    REDIRECT_STATUSES: Array[Integer]
+    RESERVED_HEADERS: Array[String]
+    CHUNK_SIZE: Integer
+    DEFAULT_USER_AGENT: String
+    NUMERIC_ONLY_HOST: Regexp
+    HEADER_INVALID_CHAR: Regexp
+    DEFAULTS: Hash[Symbol, untyped]
+
+    def initialize: (
+      ?schemes: Array[String],
+      ?max_size: Integer,
+      ?open_timeout: Numeric,
+      ?read_timeout: Numeric,
+      ?total_timeout: Numeric?,
+      ?max_redirects: Integer,
+      ?accept_encoding: String,
+      ?user_agent: String,
+      ?private_ranges: Array[IPAddr],
+      ?allow_private: bool,
+      ?allow_credentials: bool,
+      ?headers: header_hash,
+      ?resolver: AddressCheck::_Resolver,
+      ?clock: _Clock
+    ) -> void
+
+    def fetch: (
+      uri_like url,
+      ?schemes: Array[String],
+      ?max_size: Integer,
+      ?open_timeout: Numeric,
+      ?read_timeout: Numeric,
+      ?total_timeout: Numeric?,
+      ?max_redirects: Integer,
+      ?accept_encoding: String,
+      ?user_agent: String,
+      ?private_ranges: Array[IPAddr],
+      ?allow_private: bool,
+      ?allow_credentials: bool,
+      ?headers: header_hash,
+      ?resolver: AddressCheck::_Resolver,
+      ?clock: _Clock
+    ) -> Result
+
+    def open: (
+      uri_like url,
+      ?schemes: Array[String],
+      ?max_size: Integer,
+      ?open_timeout: Numeric,
+      ?read_timeout: Numeric,
+      ?total_timeout: Numeric?,
+      ?max_redirects: Integer,
+      ?accept_encoding: String,
+      ?user_agent: String,
+      ?private_ranges: Array[IPAddr],
+      ?allow_private: bool,
+      ?allow_credentials: bool,
+      ?headers: header_hash,
+      ?resolver: AddressCheck::_Resolver,
+      ?clock: _Clock
+    ) -> StringIO
+       | (
+      uri_like url,
+      ?schemes: Array[String],
+      ?max_size: Integer,
+      ?open_timeout: Numeric,
+      ?read_timeout: Numeric,
+      ?total_timeout: Numeric?,
+      ?max_redirects: Integer,
+      ?accept_encoding: String,
+      ?user_agent: String,
+      ?private_ranges: Array[IPAddr],
+      ?allow_private: bool,
+      ?allow_credentials: bool,
+      ?headers: header_hash,
+      ?resolver: AddressCheck::_Resolver,
+      ?clock: _Clock
+    ) { (_ReadableIO io) -> untyped } -> untyped
+
+    private
+
+    # Private internals are declared with mostly-untyped signatures so Steep
+    # knows they exist (no spurious "method not declared" warnings) without
+    # us having to maintain types for every internal helper.
+    def validate_opts!: (Hash[Symbol, untyped] opts) -> void
+    def run_streaming: (uri_like url, Hash[Symbol, untyped] call_opts) { (String) -> void } -> Hash[Symbol, untyped]
+    def parse_url: (uri_like url, Hash[Symbol, untyped] opts) -> URI::Generic
+    def canonicalize_host: (String host) -> String
+    def pin_address: (URI::Generic uri, AddressCheck::_Resolver resolver, Hash[Symbol, untyped] opts) -> IPAddr
+    def resolve_redirect: (URI::Generic current, String location, Hash[Symbol, untyped] opts) -> URI::Generic
+    def check_deadline: (Float? deadline, _Clock clock) -> void
+    def clamp_timeout: ((Float | Integer)? value, Float? deadline, _Clock clock) -> (Float | Integer)?
+    def perform_request: (URI::Generic uri, IPAddr ip, Hash[Symbol, untyped] opts, Float? deadline, _Clock clock) { (String) -> void } -> Array[untyped]
+    def build_http: (URI::Generic uri, IPAddr ip, Hash[Symbol, untyped] opts, Float? deadline, _Clock clock) -> Net::HTTP
+    def build_request: (URI::Generic uri, Hash[Symbol, untyped] opts) -> Net::HTTPRequest
+    def headers_hash: (Net::HTTPResponse res) -> header_hash
+    def read_body!: (Net::HTTPResponse res, header_hash headers, Hash[Symbol, untyped] opts, Float? deadline, _Clock clock) { (String) -> void } -> void
+    def read_plain!: (Net::HTTPResponse res, Integer max, Float? deadline, _Clock clock) { (String) -> void } -> void
+    def read_gzip!: (Net::HTTPResponse res, Integer max, Float? deadline, _Clock clock) { (String) -> void } -> void
+  end
+end

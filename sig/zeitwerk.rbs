@@ -1,0 +1,13 @@
+# Minimal type stubs for Zeitwerk. We only use a tiny slice of its API in the
+# gem entry point — `Zeitwerk::Loader.for_gem` plus `#ignore` and `#setup` on
+# the returned loader. The community gem_rbs_collection has fuller sigs; this
+# stub avoids pulling that in for one bootstrap call.
+module Zeitwerk
+  class Loader
+    def self.for_gem: () -> Loader
+
+    def ignore: (*String paths) -> void
+
+    def setup: () -> void
+  end
+end

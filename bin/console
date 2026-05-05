@@ -1,0 +1,15 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "bundler/setup"
+
+Bundler.require :tools
+
+SCRIPT_DIR = __dir__
+$LOAD_PATH.unshift(File.expand_path(File.join(SCRIPT_DIR, "../lib")))
+
+require "radioactive"
+
+require "irb"
+
+IRB.start(__FILE__) unless __FILE__.nil?
