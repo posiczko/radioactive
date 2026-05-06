@@ -4,7 +4,42 @@ All notable changes to this project will be documented in this file. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [Released]
+
+## [0.1.2] - 2026-05-06
+
+### Fixed
+
+- Dual-stack hosts whose resolver returns AAAA before A on a network without
+  IPv6 reachability no longer surface `ResponseError: transport error:
+  Errno::EHOSTUNREACH`. `Fetcher#perform_request` now iterates over the full
+  pre-validated candidate list returned by `pin_addresses`, advancing to the
+  next address on connect-phase transport errors (`Errno::EHOSTUNREACH`,
+  `Errno::ENETUNREACH`, `Errno::ECONNREFUSED`, `Net::OpenTimeout`). Errors
+  raised after a connection is established (TLS handshake failure, read
+  timeout, post-connect `ECONNRESET`, non-2xx response) do **not** trigger
+  fallback — silently retrying against a different IP would mask real
+  problems.
+
+### Security
+
+- Strict dual-A SSRF rejection is preserved end-to-end. Validation runs
+  across the entire resolved address list before any socket opens, so the
+  fallback added above cannot weaken the "if any resolved address is in a
+  forbidden range, refuse the request" rule. A new HTTP-level test
+  exercises the dual-stack-with-one-forbidden-address case to lock this in.
+- Caller-supplied header validation now provably runs before any socket
+  attempt across the candidate list (regression-tested via the existing
+  CRLF / NUL header tests, which previously passed only because the single
+  pinned IP refused the connection first).
+
+### Documentation
+
+- `docs/REQUIREMENTS.md` §175 ("DNS resolution and IP pinning") rewritten:
+  step 4 now describes a candidate list rather than "the first remaining
+  address," and a new step 6 specifies the connect-phase fallback
+  semantics, what does *not* trigger fallback, and the exhaustion-error
+  shape (`TimeoutError` for `Net::OpenTimeout`, otherwise `ResponseError`).
 
 ## [0.1.1] - 2026-05-04
 
