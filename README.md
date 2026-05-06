@@ -455,6 +455,18 @@ If anything fails midway (e.g. push rejected, MFA timeout), the tag may already 
 - Bump `lib/radioactive/version.rb` to the next anticipated version with a `.dev` or `.alpha` suffix if you want subsequent local builds to be distinguishable from the release.
 - Push that commit; future changes accumulate under `[Unreleased]` until the next release.
 
+### Release Cheatsheet
+
+1. Edit  CHANGELOG.md             — add the [0.1.2] - 2026-05-06 section
+2. Edit  lib/radioactive/version.rb  — "0.1.1" → "0.1.2"
+3. Run   bundle exec rake         — confirm tests + lint + types still green
+4. Run   git status               — sanity check what's about to be committed
+5. Run   git add -A && git commit — single commit covering fix + version + changelog
+6. Run   git push origin main     — gets the commit on the remote before the tag
+7. Run   bundle exec rake gem:release   — guard_clean → build → tag → push → publish (MFA)
+8. Edit  lib/radioactive/version.rb  — bump to 0.1.3.dev (post-release commit)
+9. Run   git add ... && git commit && git push
+ 
 ### Stronger publishing setup (optional)
 
 For a security-focused gem, consider [RubyGems Trusted Publishing](https://guides.rubygems.org/trusted-publishing/) instead of pushing from a developer machine: a tagged commit triggers a GitHub Actions workflow that authenticates to rubygems via OIDC and publishes without any long-lived API key on disk. Removes the "stolen laptop = compromised gem" risk and complements the MFA requirement.
