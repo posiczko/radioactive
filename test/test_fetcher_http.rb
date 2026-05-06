@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "net/http"
 require_relative "support/server_fixture"
 
 # HTTP-layer integration tests against a local TCPServer fixture.
@@ -274,6 +275,155 @@ class TestFetcherHTTP < Minitest::Test
         accept_encoding: "gzip",
         max_size: 4096
       ).fetch("#{base}/")
+    end
+  end
+
+  # ---- Address fallback (dual-stack with unreachable first hop) ---------
+
+  class StubResolver
+    def initialize(map)
+      @map = map
+    end
+
+    def getaddresses(host)
+      @map.fetch(host) { raise "unexpected resolve(#{host.inspect})" }
+    end
+  end
+
+  # Wraps Net::HTTP.new and rewrites .start on the Nth-call instance to raise
+  # a chosen error class. Lets us simulate per-candidate connect failures
+  # (EHOSTUNREACH on AAAA, success on A) without depending on platform-
+  # specific routing of unbound 127.0.0.x addresses — macOS and Linux
+  # disagree on whether 127.0.0.99 hangs or refuses fast.
+  def with_first_connect_failure(error_class)
+    real_new = Net::HTTP.method(:new)
+    call_count = 0
+
+    sclass = Net::HTTP.singleton_class
+    prev_verbose = $VERBOSE
+    $VERBOSE = nil
+    begin
+      sclass.send(:alias_method, :__radioactive_test_orig_new, :new)
+      sclass.send(:define_method, :new) do |*args, **kwargs|
+        call_count += 1
+        http = if kwargs.empty?
+          real_new.call(*args)
+        else
+          real_new.call(*args, **kwargs)
+        end
+        if call_count == 1
+          http.define_singleton_method(:start) do |*_a, &_b|
+            raise error_class, "stubbed first-candidate failure"
+          end
+        end
+        http
+      end
+    ensure
+      $VERBOSE = prev_verbose
+    end
+
+    begin
+      yield
+    ensure
+      $VERBOSE = nil
+      begin
+        sclass.send(:alias_method, :new, :__radioactive_test_orig_new)
+        sclass.send(:remove_method, :__radioactive_test_orig_new)
+      ensure
+        $VERBOSE = prev_verbose
+      end
+    end
+
+    call_count
+  end
+
+  def test_falls_back_to_next_candidate_when_first_connect_refuses
+    # Reproduces the AAAA-before-A bug: resolver returns two candidates, the
+    # first of which raises a connect-class error. The fetcher must advance
+    # to the second candidate rather than surfacing the first error.
+    serve(->(_, _, _) { {status: 200, body: "second"} })
+
+    result = nil
+    calls = with_first_connect_failure(Errno::EHOSTUNREACH) do
+      result = Radioactive::Fetcher.new(
+        resolver: StubResolver.new("dual.example" => ["127.0.0.1", "127.0.0.1"]),
+        private_ranges: []
+      ).fetch("http://dual.example:#{@server.port}/")
+    end
+
+    assert_equal 200, result.status
+    assert_equal "second", result.body
+    assert_equal 2, calls, "expected fetcher to try both candidates"
+  end
+
+  def test_falls_back_on_open_timeout
+    # Net::OpenTimeout (TCP connect or TLS handshake didn't finish) is also a
+    # connect-phase failure and must trigger fallback.
+    serve(->(_, _, _) { {status: 200, body: "ok"} })
+
+    result = nil
+    with_first_connect_failure(Net::OpenTimeout) do
+      result = Radioactive::Fetcher.new(
+        resolver: StubResolver.new("dual.example" => ["127.0.0.1", "127.0.0.1"]),
+        private_ranges: []
+      ).fetch("http://dual.example:#{@server.port}/")
+    end
+
+    assert_equal 200, result.status
+  end
+
+  def test_all_candidates_failing_to_connect_raises_response_error
+    # Both candidates are 127.0.0.1 with a port nothing listens on →
+    # ECONNREFUSED on each. After exhausting the list, the last error
+    # surfaces as ResponseError carrying the underlying Errno.
+    unbound = TCPServer.new("127.0.0.1", 0)
+    dead_port = unbound.addr[1]
+    unbound.close
+
+    err = assert_raises(Radioactive::ResponseError) do
+      Radioactive::Fetcher.new(
+        resolver: StubResolver.new("dead.example" => ["127.0.0.1", "127.0.0.1"]),
+        private_ranges: []
+      ).fetch("http://dead.example:#{dead_port}/")
+    end
+    assert_match(/ECONNREFUSED/, err.message)
+  end
+
+  def test_post_connect_error_does_not_trigger_fallback
+    # Server returns 503; that's a fully-engaged response, not a connect-phase
+    # failure. The fetcher must surface ResponseError without retrying against
+    # the next candidate — silently retrying would mask real server problems.
+    request_count = 0
+    serve(->(_, _, _) {
+      request_count += 1
+      {status: 503, body: "down"}
+    })
+
+    err = assert_raises(Radioactive::ResponseError) do
+      Radioactive::Fetcher.new(
+        resolver: StubResolver.new("dual.example" => ["127.0.0.1", "127.0.0.1"]),
+        private_ranges: []
+      ).fetch("http://dual.example:#{@server.port}/")
+    end
+
+    assert_equal 503, err.status
+    assert_equal 1, request_count, "non-2xx must not be retried against the next candidate"
+  end
+
+  def test_dual_stack_with_one_forbidden_address_still_rejected_before_connect
+    # Even though the second candidate would connect successfully, the strict
+    # pre-validation must reject the whole resolution because one IP is in
+    # the forbidden range. Defeats the dual-A SSRF that "connect-then-check"
+    # would re-introduce.
+    serve(->(_, _, _) { {status: 200, body: "should not reach"} })
+
+    f = Radioactive::Fetcher.new(
+      resolver: StubResolver.new("mixed.example" => ["10.0.0.1", "127.0.0.1"]),
+      private_ranges: [IPAddr.new("10.0.0.0/8")]
+    )
+
+    assert_raises(Radioactive::AddressError) do
+      f.fetch("http://mixed.example:#{@server.port}/")
     end
   end
 end

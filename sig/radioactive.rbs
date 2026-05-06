@@ -136,6 +136,7 @@ module Radioactive
     RESERVED_HEADERS: Array[String]
     CHUNK_SIZE: Integer
     DEFAULT_USER_AGENT: String
+    CONNECT_FALLBACK_ERRORS: Array[Class]
     NUMERIC_ONLY_HOST: Regexp
     HEADER_INVALID_CHAR: Regexp
     DEFAULTS: Hash[Symbol, untyped]
@@ -219,11 +220,12 @@ module Radioactive
     def run_streaming: (uri_like url, Hash[Symbol, untyped] call_opts) { (String) -> void } -> Hash[Symbol, untyped]
     def parse_url: (uri_like url, Hash[Symbol, untyped] opts) -> URI::Generic
     def canonicalize_host: (String host) -> String
-    def pin_address: (URI::Generic uri, AddressCheck::_Resolver resolver, Hash[Symbol, untyped] opts) -> IPAddr
+    def pin_addresses: (URI::Generic uri, AddressCheck::_Resolver resolver, Hash[Symbol, untyped] opts) -> Array[IPAddr]
     def resolve_redirect: (URI::Generic current, String location, Hash[Symbol, untyped] opts) -> URI::Generic
     def check_deadline: (Float? deadline, _Clock clock) -> void
     def clamp_timeout: ((Float | Integer)? value, Float? deadline, _Clock clock) -> (Float | Integer)?
-    def perform_request: (URI::Generic uri, IPAddr ip, Hash[Symbol, untyped] opts, Float? deadline, _Clock clock) { (String) -> void } -> Array[untyped]
+    def perform_request: (URI::Generic uri, Array[IPAddr] ips, Hash[Symbol, untyped] opts, Float? deadline, _Clock clock) { (String) -> void } -> Array[untyped]
+    def execute_request: (Net::HTTP http, Net::HTTPRequest req, Hash[Symbol, untyped] opts, Float? deadline, _Clock clock) { (String) -> void } -> Array[untyped]
     def build_http: (URI::Generic uri, IPAddr ip, Hash[Symbol, untyped] opts, Float? deadline, _Clock clock) -> Net::HTTP
     def build_request: (URI::Generic uri, Hash[Symbol, untyped] opts) -> Net::HTTPRequest
     def headers_hash: (Net::HTTPResponse res) -> header_hash

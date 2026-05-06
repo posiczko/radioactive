@@ -15,6 +15,18 @@ module Radioactive
     CHUNK_SIZE = 16 * 1024
     DEFAULT_USER_AGENT = "Radioactive/#{Radioactive::VERSION}"
 
+    # Connect-phase transport failures that justify trying the next pinned
+    # candidate. Anything else (TLS handshake failure, read timeout,
+    # post-connect ECONNRESET) is terminal — the server engaged with us, so
+    # silently retrying against a different IP would mask real problems and
+    # risks duplicating side-effecting requests in a future non-GET world.
+    CONNECT_FALLBACK_ERRORS = [
+      Errno::EHOSTUNREACH,
+      Errno::ENETUNREACH,
+      Errno::ECONNREFUSED,
+      Net::OpenTimeout
+    ].freeze
+
     # Single-label hosts that are entirely digits or 0x-prefix hex are not
     # valid RFC 1123 hostnames; they're SSRF-bypass attempts that some libc
     # getaddrinfo implementations historically resolved as IPs.
@@ -110,8 +122,8 @@ module Radioactive
       loop do
         check_deadline(deadline, clock)
 
-        ip = pin_address(current, resolver, opts)
-        kind, status, headers, body = perform_request(current, ip, opts, deadline, clock, &chunk_block)
+        ips = pin_addresses(current, resolver, opts)
+        kind, status, headers, body = perform_request(current, ips, opts, deadline, clock, &chunk_block)
 
         case kind
         when :redirect
@@ -170,7 +182,12 @@ module Radioactive
       host
     end
 
-    def pin_address(uri, resolver, opts)
+    # Resolve the host once and validate every address against the forbidden
+    # ranges before returning. Returns the full list in resolver order so the
+    # connect loop can fall back across dual-stack records when one path is
+    # down — the strict "any forbidden → reject" rule still defeats dual-A
+    # SSRF because validation runs upfront, before any socket opens.
+    def pin_addresses(uri, resolver, opts)
       host = uri.host or raise AddressError, "URL has no host"
       addresses = AddressCheck.resolve(host, resolver)
       raise AddressError, "no addresses for #{host}" if addresses.empty?
@@ -183,7 +200,7 @@ module Radioactive
         end
       end
 
-      addresses.first
+      addresses
     end
 
     def resolve_redirect(current, location, opts)
@@ -209,37 +226,68 @@ module Radioactive
       [value, remaining].min
     end
 
-    def perform_request(uri, ip, opts, deadline, clock, &chunk_block)
-      http = build_http(uri, ip, opts, deadline, clock)
+    def perform_request(uri, ips, opts, deadline, clock, &chunk_block)
+      # Build the request up front so caller-supplied input (e.g. CRLF in
+      # headers) is rejected before any socket opens — independent of which
+      # candidate we'd reach.
       req = build_request(uri, opts)
+      last_connect_error = nil
 
-      result = nil
-      begin
-        http.start do |conn|
-          conn.request(req) do |res|
-            code = res.code.to_i
-            headers = headers_hash(res)
+      ips.each do |ip|
+        http = build_http(uri, ip, opts, deadline, clock)
 
-            if REDIRECT_STATUSES.include?(code) && headers["location"]
-              result = [:redirect, code, headers, nil]
-            elsif (200..299).cover?(code)
-              # 2xx: stream chunks straight to caller; no buffering here.
-              read_body!(res, headers, opts, deadline, clock, &chunk_block)
-              result = [:final, code, headers, nil]
-            else
-              # Non-2xx: buffer body so ResponseError can carry partial data.
-              error_body = String.new(capacity: CHUNK_SIZE)
-              read_body!(res, headers, opts, deadline, clock) { |chunk| error_body << chunk }
-              result = [:final, code, headers, error_body]
-            end
+        begin
+          http.start
+        rescue *CONNECT_FALLBACK_ERRORS => e
+          last_connect_error = e
+          next
+        rescue OpenSSL::SSL::SSLError, SocketError, Errno::ECONNRESET,
+          IOError => e
+          raise ResponseError, "transport error: #{e.class}: #{e.message}"
+        end
+
+        begin
+          return execute_request(http, req, opts, deadline, clock, &chunk_block)
+        rescue Net::OpenTimeout, Net::ReadTimeout => e
+          raise TimeoutError, e.message
+        rescue OpenSSL::SSL::SSLError, SocketError, Errno::ECONNREFUSED,
+          Errno::EHOSTUNREACH, Errno::ENETUNREACH, Errno::ECONNRESET,
+          IOError => e
+          raise ResponseError, "transport error: #{e.class}: #{e.message}"
+        ensure
+          begin
+            http.finish if http.started?
+          rescue IOError
+            # already closed
           end
         end
-      rescue Net::OpenTimeout, Net::ReadTimeout => e
-        raise TimeoutError, e.message
-      rescue OpenSSL::SSL::SSLError, SocketError, Errno::ECONNREFUSED,
-        Errno::EHOSTUNREACH, Errno::ENETUNREACH, Errno::ECONNRESET,
-        IOError => e
-        raise ResponseError, "transport error: #{e.class}: #{e.message}"
+      end
+
+      # All candidates failed at connect. Surface the last error in the same
+      # shape a single-address failure would have taken.
+      raise TimeoutError, last_connect_error.message if last_connect_error.is_a?(Net::OpenTimeout)
+      raise ResponseError, "transport error: #{last_connect_error.class}: #{last_connect_error.message}"
+    end
+
+    def execute_request(http, req, opts, deadline, clock, &chunk_block)
+      result = nil
+
+      http.request(req) do |res|
+        code = res.code.to_i
+        headers = headers_hash(res)
+
+        if REDIRECT_STATUSES.include?(code) && headers["location"]
+          result = [:redirect, code, headers, nil]
+        elsif (200..299).cover?(code)
+          # 2xx: stream chunks straight to caller; no buffering here.
+          read_body!(res, headers, opts, deadline, clock, &chunk_block)
+          result = [:final, code, headers, nil]
+        else
+          # Non-2xx: buffer body so ResponseError can carry partial data.
+          error_body = String.new(capacity: CHUNK_SIZE)
+          read_body!(res, headers, opts, deadline, clock) { |chunk| error_body << chunk }
+          result = [:final, code, headers, error_body]
+        end
       end
 
       result || raise(ResponseError, "request produced no response")

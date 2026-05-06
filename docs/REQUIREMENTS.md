@@ -178,11 +178,23 @@ fetcher.fetch("https://example.com")
 2. For each address: parse as `IPAddr`, check against `private_ranges`.
 3. If **any** resolved address is in a forbidden range, raise `AddressError`.
    (Strict: defeats dual-A-record SSRF where a host resolves to a public
-   *and* private IP.)
-4. Pin the first remaining address as the connection target.
-5. Construct `Net::HTTP` with the pinned IP via `http.ipaddr = ip`, but
+   *and* private IP. Validation runs across the whole list before any
+   socket opens, so the dual-A guard is not weakened by step 6.)
+4. Pin the validated addresses, in resolver order, as connection candidates.
+5. Construct `Net::HTTP` with the candidate IP via `http.ipaddr = ip`, but
    leave `http.address` as the hostname so SNI and certificate verification
    work normally.
+6. Try candidates in order. If the connection attempt fails with a
+   connect-phase transport error (`Errno::EHOSTUNREACH`,
+   `Errno::ENETUNREACH`, `Errno::ECONNREFUSED`, or `Net::OpenTimeout`),
+   advance to the next candidate. This handles dual-stack hosts whose
+   resolver returns AAAA before A on a network without IPv6 reachability.
+   Errors raised after a connection has been established (TLS handshake
+   failure, read timeout, post-connect `ECONNRESET`, non-2xx status) do
+   **not** trigger fallback — the server engaged with us and silently
+   retrying against a different IP would mask real problems. If every
+   candidate fails at connect, raise the last error in its usual shape
+   (`TimeoutError` for `Net::OpenTimeout`, otherwise `ResponseError`).
 
 ### Connection
 
