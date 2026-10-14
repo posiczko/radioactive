@@ -528,7 +528,7 @@ Bug reports and pull requests are welcome on GitHub at https://github.com/[USERN
 
 ### Before opening a PR
 
-1. **Run the full check locally.** `bundle exec rake` runs tests, RuboCop, and the type check (`rbs validate` + `steep`). All three must pass.
+1. **Run the full check locally.** `bundle exec rake` runs tests, rubyfmt, and the type check (`rbs validate` + `steep`). All three must pass.
 2. **Update the spec if you're changing behavior.** The contract lives at [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md). Code and spec drift is a bug - fix them in the same commit.
 3. **Update the signatures if you're changing the public API.** Any change to a public method on `Radioactive`, `Fetcher`, `Result`, or any error class needs a matching update in `sig/radioactive.rbs`. The Type checking section above covers what to do; `bundle exec rake types` will tell you when something's off.
 4. **Add a test.** Especially for security-sensitive paths: every defense in the threat model should have a test that proves the failure path actually closes. See `test/test_fetcher.rb` and `test/test_fetcher_http.rb` for patterns.
@@ -539,4 +539,11 @@ Please report security-sensitive issues privately rather than via a public GitHu
 
 ### Style
 
-The project uses [`standard`](https://github.com/standardrb/standard) (via RuboCop) for formatting. `bundle exec rake lint` reports issues; `bundle exec rake lint:rubocop:autocorrect` fixes the autocorrectable ones.
+The project uses [`rubyfmt`](https://github.com/fables-tales/rubyfmt) for formatting. It's a standalone binary, not a gem: `brew install rubyfmt`. Paths in `.rubyfmtignore` are skipped.
+
+```sh
+bundle exec rake lint                        # run all linters (currently rubyfmt)
+bundle exec rake lint:all:autocorrect        # apply all autocorrects
+bundle exec rake lint:rubyfmt                # check formatting
+bundle exec rake lint:rubyfmt:autocorrect    # reformat in place
+```
