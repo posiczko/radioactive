@@ -158,7 +158,8 @@ module Radioactive
 
     def parse_url(url, opts)
       uri = url.is_a?(URI) ? url.dup : URI.parse(url.to_s)
-      raise SchemeError, "URL has no host" if uri.host.nil? || uri.host.empty?
+      host = uri.host
+      raise SchemeError, "URL has no host" if host.nil? || host.empty?
       unless opts[:schemes].include?(uri.scheme)
         raise SchemeError, "scheme not allowed: #{uri.scheme.inspect}"
       end
@@ -167,7 +168,7 @@ module Radioactive
         raise SchemeError, "embedded credentials not allowed"
       end
 
-      uri.host = canonicalize_host(uri.host)
+      uri.host = canonicalize_host(host)
       uri.fragment = nil
       uri
     rescue URI::InvalidURIError => e
@@ -237,6 +238,7 @@ module Radioactive
       # headers) is rejected before any socket opens — independent of which
       # candidate we'd reach.
       req = build_request(uri, opts)
+      # @type var last_connect_error: Exception?
       last_connect_error = nil
 
       ips.each do |ip|
@@ -276,7 +278,9 @@ module Radioactive
       end
 
       # All candidates failed at connect. Surface the last error in the same
-      # shape a single-address failure would have taken.
+      # shape a single-address failure would have taken. pin_addresses never
+      # returns an empty list, so the nil branch is unreachable.
+      raise ResponseError, "no candidate addresses" if last_connect_error.nil?
       raise TimeoutError, last_connect_error.message if last_connect_error.is_a?(Net::OpenTimeout)
       raise ResponseError, "transport error: #{last_connect_error.class}: #{last_connect_error.message}"
     end
