@@ -35,9 +35,11 @@ class TestServer
         client = @server.accept
         Thread.new(client) { |c| serve(c) }
       end
+
     rescue IOError, Errno::EBADF
       # server socket closed by stop
     end
+
     self
   end
 
@@ -68,6 +70,7 @@ class TestServer
       response = @handler.call(method, path, headers)
       client.write(format_response(response))
     end
+
   rescue IOError, Errno::EPIPE, Errno::ECONNRESET
     # client gone mid-write
   ensure
@@ -106,6 +109,7 @@ class TestServer
     parts.each do |p|
       out << "#{p.bytesize.to_s(16)}\r\n#{p}\r\n"
     end
+
     out << "0\r\n\r\n"
     out
   end

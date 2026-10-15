@@ -5,12 +5,12 @@ require "uri"
 
 class TestRadioactive < Minitest::Test
   def test_that_it_has_a_version_number
-    refute_nil ::Radioactive::VERSION
+    refute_nil(::Radioactive::VERSION)
   end
 
   def test_module_exposes_fetch_and_open
-    assert_respond_to Radioactive, :fetch
-    assert_respond_to Radioactive, :open
+    assert_respond_to(Radioactive, :fetch)
+    assert_respond_to(Radioactive, :open)
   end
 
   def test_result_is_frozen_data_with_expected_members
@@ -22,9 +22,9 @@ class TestRadioactive < Minitest::Test
       body: "hi",
       hops: []
     )
-    assert_equal 200, r.status
-    assert_equal "hi", r.body
+    assert_equal(200, r.status)
+    assert_equal("hi", r.body)
     # Data instances are deeply immutable
-    assert r.frozen?
+    assert(r.frozen?)
   end
 end

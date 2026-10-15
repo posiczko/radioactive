@@ -29,7 +29,9 @@ module Radioactive
       fc00::/7
       fe80::/10
       ff00::/8
-    ].map { |cidr| IPAddr.new(cidr) }.freeze
+    ]
+      .map { |cidr| IPAddr.new(cidr) }
+      .freeze
 
     module_function
 

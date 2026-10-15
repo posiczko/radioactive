@@ -96,6 +96,7 @@ module Radioactive
       if opts.key?(:max_redirects) && opts[:max_redirects].negative?
         raise ArgumentError, "max_redirects must be >= 0"
       end
+
       if opts.key?(:max_size) && opts[:max_size] <= 0
         raise ArgumentError, "max_size must be > 0"
       end
@@ -134,9 +135,13 @@ module Radioactive
           current = resolve_redirect(current, headers["location"], opts)
         when :final
           unless (200..299).cover?(status)
-            raise ResponseError.new(
-              "non-success status: #{status}",
-              status: status, headers: headers, body: body
+            raise(
+              ResponseError.new(
+                "non-success status: #{status}",
+                status: status,
+                headers: headers,
+                body: body
+              )
             )
           end
 
@@ -157,6 +162,7 @@ module Radioactive
       unless opts[:schemes].include?(uri.scheme)
         raise SchemeError, "scheme not allowed: #{uri.scheme.inspect}"
       end
+
       if (uri.userinfo || uri.user) && !opts[:allow_credentials]
         raise SchemeError, "embedded credentials not allowed"
       end
@@ -188,7 +194,7 @@ module Radioactive
     # down — the strict "any forbidden → reject" rule still defeats dual-A
     # SSRF because validation runs upfront, before any socket opens.
     def pin_addresses(uri, resolver, opts)
-      host = uri.host or raise AddressError, "URL has no host"
+      host = uri.host or raise(AddressError, "URL has no host")
       addresses = AddressCheck.resolve(host, resolver)
       raise AddressError, "no addresses for #{host}" if addresses.empty?
 
@@ -241,7 +247,9 @@ module Radioactive
         rescue *CONNECT_FALLBACK_ERRORS => e
           last_connect_error = e
           next
-        rescue OpenSSL::SSL::SSLError, SocketError, Errno::ECONNRESET,
+        rescue OpenSSL::SSL::SSLError,
+          SocketError,
+          Errno::ECONNRESET,
           IOError => e
           raise ResponseError, "transport error: #{e.class}: #{e.message}"
         end
@@ -250,8 +258,12 @@ module Radioactive
           return execute_request(http, req, opts, deadline, clock, &chunk_block)
         rescue Net::OpenTimeout, Net::ReadTimeout => e
           raise TimeoutError, e.message
-        rescue OpenSSL::SSL::SSLError, SocketError, Errno::ECONNREFUSED,
-          Errno::EHOSTUNREACH, Errno::ENETUNREACH, Errno::ECONNRESET,
+        rescue OpenSSL::SSL::SSLError,
+          SocketError,
+          Errno::ECONNREFUSED,
+          Errno::EHOSTUNREACH,
+          Errno::ENETUNREACH,
+          Errno::ECONNRESET,
           IOError => e
           raise ResponseError, "transport error: #{e.class}: #{e.message}"
         ensure
@@ -294,7 +306,7 @@ module Radioactive
     end
 
     def build_http(uri, ip, opts, deadline, clock)
-      host = uri.host or raise SchemeError, "URL has no host"
+      host = uri.host or raise(SchemeError, "URL has no host")
       port = uri.port || ((uri.scheme == "https") ? 443 : 80)
       http = Net::HTTP.new(host, port)
       http.ipaddr = ip.to_s
@@ -304,12 +316,15 @@ module Radioactive
       if (open_t = clamp_timeout(opts[:open_timeout], deadline, clock))
         http.open_timeout = open_t
       end
+
       if (read_t = clamp_timeout(opts[:read_timeout], deadline, clock))
         http.read_timeout = read_t
       end
+
       if http.respond_to?(:write_timeout=) && (write_t = clamp_timeout(opts[:open_timeout], deadline, clock))
         http.write_timeout = write_t
       end
+
       http
     end
 
@@ -330,6 +345,7 @@ module Radioactive
 
         req[name] = value
       end
+
       req
     end
 
@@ -382,6 +398,7 @@ module Radioactive
 
           yield decoded unless decoded.empty?
         end
+
         tail = inflater.finish
         unless tail.empty?
           total += tail.bytesize
@@ -389,6 +406,7 @@ module Radioactive
 
           yield tail
         end
+
       rescue Zlib::Error => e
         raise EncodingError, "gzip decode failed: #{e.message}"
       ensure

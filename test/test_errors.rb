@@ -13,7 +13,7 @@ class TestErrors < Minitest::Test
       Radioactive::EncodingError,
       Radioactive::ResponseError
     ].each do |klass|
-      assert_operator klass, :<, Radioactive::Error
+      assert_operator(klass, :<, Radioactive::Error)
     end
   end
 
@@ -24,17 +24,17 @@ class TestErrors < Minitest::Test
       headers: {"x-foo" => "bar"},
       body: "down"
     )
-    assert_equal "boom", err.message
-    assert_equal 503, err.status
+    assert_equal("boom", err.message)
+    assert_equal(503, err.status)
     assert_equal({"x-foo" => "bar"}, err.headers)
-    assert_equal "down", err.body
+    assert_equal("down", err.body)
   end
 
   def test_response_error_works_without_partial_response
     err = Radioactive::ResponseError.new("transport boom")
-    assert_equal "transport boom", err.message
-    assert_nil err.status
-    assert_nil err.headers
-    assert_nil err.body
+    assert_equal("transport boom", err.message)
+    assert_nil(err.status)
+    assert_nil(err.headers)
+    assert_nil(err.body)
   end
 end
