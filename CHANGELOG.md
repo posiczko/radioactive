@@ -4,7 +4,49 @@ All notable changes to this project will be documented in this file. The format
 is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Released]
+## [Unreleased]
+
+## [0.1.3] - 2026-10-14
+
+No runtime behavior changes.
+
+### Changed
+
+- Minimum supported Ruby raised from 3.2 to 3.3 (`required_ruby_version
+  >= 3.3.0`). Ruby 3.2 reached end-of-life in March 2026.
+
+### Fixed
+
+- CI never ran on pushes: the workflow's `push` trigger pointed at a
+  placeholder branch (`.invalid`). It now runs on pushes to `main` as well as
+  on pull requests.
+- CI tested a single Ruby version. The `test` job now runs on every Ruby the
+  gemspec supports (3.3, 3.4, 4.0), installing without the `development` and
+  `tools` groups, whose gems require Ruby >= 4.0.
+- The packaged gem's file exclusion list still referenced the removed
+  `.rubocop.yml`. It now excludes the development-only `.rubyfmtignore`,
+  `.gitleaks.toml`, and `.pre-commit-config.yaml`, so they don't ship in the
+  `.gem`.
+- `rake types` (Steep) failed with two nil-safety errors in `Fetcher`:
+  `parse_url` re-read `uri.host` after its nil check, and the connect-fallback
+  error in `perform_request` had no declared type. Both are now typed
+  explicitly. Behavior is unchanged.
+
+### Security
+
+- Development dependencies with published advisories updated:
+  `concurrent-ruby` 1.3.6 → 1.3.8 and `json` 2.19.5 → 3.1.0 (both pulled in
+  by Steep). Neither is a runtime dependency of the gem.
+- New `rake security` task (bundler-audit + gitleaks), run by prek
+  pre-commit and pre-push hooks and by the CI `scan_ruby` and `secrets` jobs.
+
+### Development
+
+- Formatting moved from Standard/RuboCop to `rubyfmt`; the codebase was
+  reformatted accordingly. `rake lint` and `rake lint:all:autocorrect` now run
+  rubyfmt.
+- CI split into separate `test`, `lint`, `types`, `scan_ruby`, and `secrets`
+  jobs.
 
 ## [0.1.2] - 2026-05-06
 
