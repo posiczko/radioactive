@@ -1,0 +1,43 @@
+repos:
+  # Keep in step with GITLEAKS_VERSION in .github/workflows/main.yml; both read
+  # .gitleaks.toml.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+        stages: [pre-commit]
+
+  - repo: local
+    hooks:
+      # Runs on every commit, not just Gemfile.lock changes, so new advisories
+      # against unchanged gems block the commit too.
+      - id: security-audit
+        name: Security Audit
+        entry: bundle exec rake security:audit
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+      - id: rubyfmt
+        name: Rubyfmt
+        entry: rubyfmt --check
+        language: system
+        types_or: [ruby]
+        # rubyfmt only honors .rubyfmtignore when walking a directory, not when
+        # given explicit file paths (which prek passes), so exclude here too.
+        # .rake files are Ruby but rubyfmt does not format them reliably; Rakefile
+        # and the gemspec are DSL files rubyfmt would wrap in parens.
+        exclude: ^(bin|pkg|vendor)/|\.rake$|\.gemspec$|(Gemfile|Rakefile)$
+        stages: [pre-commit]
+
+      # bundler-audit (fresh advisory DB) plus a full-tree gitleaks scan, once
+      # per push rather than per commit. CI enforces both; this just catches
+      # them earlier.
+      - id: security
+        name: Security (bundler-audit + gitleaks)
+        entry: bundle exec rake security
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

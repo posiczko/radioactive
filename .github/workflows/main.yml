@@ -1,9 +1,8 @@
-name: Ruby
+name: CI
 
 on:
   push:
-    branches:
-      - .invalid
+    branches: [ main ]
 
   pull_request:
 
@@ -11,14 +10,18 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  # Every Ruby the gemspec claims to support. The development and tools groups
+  # are skipped: some of their gems (e.g. tocer) require Ruby >= 4.0, and rake
+  # lives there too, so the suite is loaded directly instead of via rake.
+  test:
     runs-on: ubuntu-latest
-    name: Ruby ${{ matrix.ruby }}
+    name: Test (Ruby ${{ matrix.ruby }})
     strategy:
+      fail-fast: false
       matrix:
-        ruby:
-          - '4.0.3'
-
+        ruby: [ '3.3', '3.4', '4.0' ]
+    env:
+      BUNDLE_WITHOUT: development:tools
     steps:
       - uses: actions/checkout@v6
         with:
@@ -28,5 +31,84 @@ jobs:
         with:
           ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
-      - name: Run the default task
-        run: bundle exec rake
+      - name: Run tests
+        run: bundle exec ruby -Ilib -Itest -e 'Dir["test/**/test_*.rb"].each { |f| require File.expand_path(f) }'
+
+  lint:
+    runs-on: ubuntu-latest
+    env:
+      # Keep in sync with the rubyfmt version installed locally (Homebrew).
+      RUBYFMT_VERSION: v0.14.1
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Install rubyfmt
+        run: |
+          mkdir -p /tmp/rubyfmt
+          curl -fsSL "https://github.com/fables-tales/rubyfmt/releases/download/${RUBYFMT_VERSION}/rubyfmt-${RUBYFMT_VERSION}-Linux-x86_64.tar.gz" \
+            | tar -xz -C /tmp/rubyfmt
+          sudo install "$(find /tmp/rubyfmt -type f -name rubyfmt | head -n1)" /usr/local/bin/rubyfmt
+          rubyfmt --version
+      - name: Lint Ruby for consistent formatting
+        run: rubyfmt --check .
+
+  # rbs validate + steep check.
+  types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '4.0'
+          bundler-cache: true
+      - name: Type check
+        run: bundle exec rake types
+
+  # bundler-audit with a fresh advisory DB, so new CVEs against unchanged gems
+  # fail the build too.
+  scan_ruby:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '4.0'
+          bundler-cache: true
+      - name: Scan for known security vulnerabilities in gems used
+        run: bundle exec rake security:audit
+
+  # Secret scanning over the commits this run adds — the pre-commit hook is
+  # local and skippable (--no-verify), this is not. Uses the release binary:
+  # gitleaks-action needs a license key for organization repos. Config and
+  # allowlists: .gitleaks.toml.
+  secrets:
+    runs-on: ubuntu-latest
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install gitleaks
+        run: |
+          curl -fsSLo gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tar.gz" | sha256sum --check
+          sudo tar -xzf gitleaks.tar.gz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Scan new commits for secrets
+        env:
+          # PR: everything on the branch not yet on its base. Push: the pushed
+          # range; a new branch has no "before", so fall back to the head commit.
+          RANGE: ${{ github.event_name == 'pull_request' && format('{0}..{1}', github.event.pull_request.base.sha, github.event.pull_request.head.sha) || (github.event.before != '0000000000000000000000000000000000000000' && format('{0}..{1}', github.event.before, github.sha) || format('{0}~1..{0}', github.sha)) }}
+        run: gitleaks git --no-banner --redact --verbose --log-opts="${RANGE}" .
