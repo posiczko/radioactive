@@ -9,7 +9,7 @@ group :development do
   gem "bundler-audit", require: false
   gem "rake"
   gem "rbs", require: false
-  gem "rdoc", "~> 7.0.3"
+  gem "rdoc", "~> 8.1.0"
   gem "steep", require: false
   gem "tocer"
 end
