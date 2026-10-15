@@ -1,0 +1,8 @@
+# gitleaks configuration — read by the pre-commit hook and the CI `secrets` job.
+#
+# Extends the default ruleset. If a finding is reviewed and turns out to be a
+# sample rather than a credential, add an [[allowlists]] entry naming that
+# exact file; don't widen allowlists to whole directories.
+
+[extend]
+useDefault = true
