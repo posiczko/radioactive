@@ -12,8 +12,6 @@ Radioactive is a hardened HTTP fetcher for URLs supplied by untrusted users — 
 
 The scaffold from `bundle gem radioactive` is still mostly untouched: `lib/radioactive.rb` defines only the module and a base `Error` class, `test/test_radioactive.rb` contains the generator's failing `assert false`, and the gemspec metadata (`summary`, `description`, `homepage`, `allowed_push_host`, `source_code_uri`, `changelog_uri`) is still TODO placeholders. Implementation work is greenfield — match the API surface in `docs/REQUIREMENTS.md` rather than inventing one.
 
-Note: the parent directory `/Users/pablo/code/posiczko/CLAUDE.md` documents a different project (Ougai). It does not apply here — Radioactive uses Minitest (not RSpec), Standard (not RuboCop directly), and has no Oj/JrJackson dependency.
-
 ## Architectural constraints (from the spec)
 
 These are non-negotiable design choices in `docs/REQUIREMENTS.md`. Don't propose changes that violate them without flagging the spec change first:
@@ -35,11 +33,16 @@ These are non-negotiable design choices in `docs/REQUIREMENTS.md`. Don't propose
 
 - `bin/setup` — install dependencies (wraps `bundle install`).
 - `bin/console` — IRB session with the gem preloaded.
-- `bundle exec rake` — default task: runs `test` then `standard` (lint). Both must pass.
+- `bundle exec rake` — default task: runs `test`, `lint`, then `types`. All must pass.
 - `bundle exec rake test` — Minitest suite (driven by `Minitest::TestTask`, picks up `test/**/test_*.rb`).
 - `bundle exec rake test TESTOPTS="--name=/pattern/"` — run a single test or matching subset.
 - `ruby -Ilib -Itest test/test_radioactive.rb` — run one test file directly without rake.
-- `bundle exec rake standard` / `bundle exec rake standard:fix` — lint / autofix.
+- `bundle exec rake lint` / `bundle exec rake lint:all:autocorrect` — run all linters / autofix.
+- `bundle exec rake lint:rubyfmt` / `lint:rubyfmt:autocorrect` — `rubyfmt` (Homebrew binary, not a gem) check / reformat; skips paths in `.rubyfmtignore`.
+- `bundle exec rake security` — bundler-audit + gitleaks; also runs as a pre-push hook (`prek install --hook-type pre-push`).
+- `bundle exec rake security:audit` — `bundler-audit` update + scan; also runs as a pre-commit hook on every commit.
+- `bundle exec rake security:gitleaks` — secret scan of the working tree (respects `.gitignore`). gitleaks also runs on staged changes (pre-commit) and on PR commits (CI `secrets` job); config and allowlists in `.gitleaks.toml`.
+- Pre-commit hooks (`.pre-commit-config.yaml`, run by `prek`) cover gitleaks, security audit, and rubyfmt. Install with `prek install`.
 - `bundle exec rake build` / `install` / `release` — gem packaging tasks (release is maintainer-only and currently blocked by the `allowed_push_host` TODO in the gemspec).
 
 ## Layout and conventions
@@ -48,5 +51,5 @@ These are non-negotiable design choices in `docs/REQUIREMENTS.md`. Don't propose
 - Long-form design docs live in `docs/`. `docs/REQUIREMENTS.md` is the spec; treat it as a contract and update it deliberately (in the same commit as behavior changes) rather than letting code and spec drift.
 - RBS signatures live in `sig/radioactive.rbs` — keep them in sync when adding public API.
 - Versioning: bump `Radioactive::VERSION` in `lib/radioactive/version.rb` for releases.
-- Ruby version: gemspec requires `>= 3.2.0`; `.standard.yml` pins the Standard target to `3.2`. Match that when writing code (no 3.3-only syntax unless you also bump these).
-- CI (`.github/workflows/main.yml`) only runs on pull requests — its `push` trigger is wired to a placeholder branch (`.invalid`), so pushes to `main` will not run CI until that's fixed. The matrix currently lists Ruby `'4.0.3'`, which does not exist; expect CI to fail until the version is corrected.
+- Ruby version: gemspec requires `>= 3.2.0`. Match that when writing code (no 3.3-only syntax unless you also bump it).
+- CI (`.github/workflows/main.yml`) runs on pushes to `main` and on pull requests. Jobs: `test` (matrix over Ruby 3.2–4.0, installed without the `development`/`tools` groups because some of those gems need Ruby >= 4.0, so tests are loaded directly rather than via rake), `lint` (rubyfmt binary, pinned to the Homebrew version), `types` (`rake types`), `scan_ruby` (bundler-audit), and `secrets` (gitleaks over the pushed/PR commits). When you add a Ruby version to the gemspec range or bump rubyfmt locally, update the workflow to match.
