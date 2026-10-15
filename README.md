@@ -420,6 +420,13 @@ bundle exec ruby -Ilib -Itest test/test_fetcher.rb  # run one test file directly
 
 After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake test` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
 
+The formatter, secret scanner, and hook runner are standalone binaries rather than gems, so install them separately and then install the git hooks (see [Git hooks](#git-hooks)):
+
+```sh
+brew install rubyfmt gitleaks prek
+prek install && prek install --hook-type pre-push
+```
+
 To install this gem onto your local machine, run `bundle exec rake gem:install`. See [Releasing](#releasing) below for publishing a new version.
 
 ## Releasing
@@ -429,7 +436,7 @@ A release cuts a new version, tags it in git, and pushes the `.gem` to [rubygems
 ### Pre-flight
 
 1. `bundle exec rake` exits 0. Tests, lint, and type checks all green.
-2. `lib/radioactive/version.rb` bumped to the new version following [SemVer](https://semver.org).
+2. `lib/radioactive/version.rb` bumped to the new version following [SemVer](https://semver.org), followed by `bundle install` so the `radioactive (X.Y.Z)` lines in `Gemfile.lock` match. Commit both files together: if they disagree, the pre-commit `security:audit` hook fails because `bundle exec` rewrites the lockfile.
 3. `CHANGELOG.md` has a populated section for the new version with a date, and `[Unreleased]` is empty (or its contents have been moved into the new section).
 4. Working tree is clean (`rake gem:release` enforces this).
 5. You have an active rubygems session: `gem signin` if `gem whoami` returns nothing.
@@ -458,13 +465,13 @@ If anything fails midway (e.g. push rejected, MFA timeout), the tag may already 
 ### Release Cheatsheet
 
 1. Edit  CHANGELOG.md             — add the [0.1.2] - 2026-05-06 section
-2. Edit  lib/radioactive/version.rb  — "0.1.1" → "0.1.2"
+2. Edit  lib/radioactive/version.rb  — "0.1.1" → "0.1.2", then `bundle install` to sync Gemfile.lock
 3. Run   bundle exec rake         — confirm tests + lint + types still green
 4. Run   git status               — sanity check what's about to be committed
 5. Run   git add -A && git commit — single commit covering fix + version + changelog
 6. Run   git push origin main     — gets the commit on the remote before the tag
 7. Run   bundle exec rake gem:release   — guard_clean → build → tag → push → publish (MFA)
-8. Edit  lib/radioactive/version.rb  — bump to 0.1.3.dev (post-release commit)
+8. Edit  lib/radioactive/version.rb  — bump to 0.1.3.dev (post-release commit), then `bundle install`
 9. Run   git add ... && git commit && git push
  
 ### Stronger publishing setup (optional)
@@ -532,6 +539,49 @@ Bug reports and pull requests are welcome on GitHub at https://github.com/[USERN
 2. **Update the spec if you're changing behavior.** The contract lives at [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md). Code and spec drift is a bug - fix them in the same commit.
 3. **Update the signatures if you're changing the public API.** Any change to a public method on `Radioactive`, `Fetcher`, `Result`, or any error class needs a matching update in `sig/radioactive.rbs`. The Type checking section above covers what to do; `bundle exec rake types` will tell you when something's off.
 4. **Add a test.** Especially for security-sensitive paths: every defense in the threat model should have a test that proves the failure path actually closes. See `test/test_fetcher.rb` and `test/test_fetcher_http.rb` for patterns.
+
+### Security checks
+
+```sh
+bundle exec rake security           # run both checks below
+bundle exec rake security:audit     # bundler-audit: update advisory DB, scan Gemfile.lock
+bundle exec rake security:gitleaks  # gitleaks: scan the working tree for secrets
+```
+
+Secrets are scanned with [gitleaks](https://github.com/gitleaks/gitleaks)
+(`brew install gitleaks`), configured in `.gitleaks.toml`.
+
+### Git hooks
+
+Hooks are defined in `.pre-commit-config.yaml` and run by
+[prek](https://github.com/j178/prek) (`brew install prek`). Install them once
+per clone:
+
+```sh
+prek install                        # pre-commit
+prek install --hook-type pre-push   # pre-push
+```
+
+* **pre-commit:** gitleaks on staged changes, `security:audit` on every commit,
+  rubyfmt on staged `.rb` files.
+* **pre-push:** `rake security` (bundler-audit + gitleaks).
+
+CI (`.github/workflows/main.yml`) runs bundler-audit and gitleaks too, so
+skipping a hook with `--no-verify` only delays the failure.
+
+### CI
+
+`.github/workflows/main.yml` runs on pushes to `main` and on pull requests:
+
+| Job         | What it does                                                                                     |
+|-------------|--------------------------------------------------------------------------------------------------|
+| `test`      | Test suite on Ruby 3.2, 3.3, 3.4, and 4.0 (every version the gemspec supports).                  |
+| `lint`      | `rubyfmt --check .`, using the release binary pinned in `RUBYFMT_VERSION`.                        |
+| `types`     | `rake types` (`rbs validate` + `steep check`) on Ruby 4.0.                                       |
+| `scan_ruby` | `rake security:audit` against a freshly updated advisory database.                               |
+| `secrets`   | gitleaks over the commits the push or PR adds.                                                   |
+
+The `test` job installs gems without the `development` and `tools` groups, because some of those gems require Ruby >= 4.0, and loads the test files directly instead of through rake. When you widen the gemspec's Ruby range or upgrade rubyfmt locally, update the matrix or `RUBYFMT_VERSION` to match.
 
 ### Security issues
 
